@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: validacao
+      POSTGRES_PASSWORD: validacao
+      POSTGRES_DB: validacao
+    ports:
+      - "5432:5432"
+    volumes:
+      - dados:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/2-seed.sql:ro
+
+  nucleo:
+    build: ./nucleo
+    ports:
+      - "8080:8080"
+
+  web:
+    build: ./web
+    environment:
+      DATABASE_URL: postgres://validacao:validacao@db:5432/validacao
+      NUCLEO_URL: http://nucleo:8080/validar
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+      - nucleo
+
+volumes:
+  dados:

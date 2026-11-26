@@ -1,0 +1,1013 @@
+\documentclass[aspectratio=169,11pt,xcolor=table]{beamer}
+
+\usetheme[progressbar=frametitle, numbering=fraction,
+          sectionpage=none, subsectionpage=none, block=fill]{metropolis}
+\usepackage[brazilian]{babel}
+\usepackage{fontspec}
+\setsansfont{Fira Sans}[BoldFont={Fira Sans SemiBold},
+  ItalicFont={Fira Sans Italic}, BoldItalicFont={Fira Sans SemiBold Italic}]
+\setmonofont{Inconsolatazi4-Regular.otf}[BoldFont=Inconsolatazi4-Bold.otf, Scale=1.08]
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{fontawesome5}
+\usepackage{appendixnumberbeamer}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,shapes.geometric}
+
+\definecolor{ink}{HTML}{1E2633}
+\definecolor{paper}{HTML}{FBFAF7}
+\definecolor{accent}{HTML}{C8553D}
+\definecolor{muted}{HTML}{6B7280}
+\definecolor{codebg}{HTML}{F2EFE9}
+\definecolor{term}{HTML}{1B1F27}
+\definecolor{ok}{HTML}{2F7D4F}
+\definecolor{bad}{HTML}{B23A3A}
+\definecolor{str}{HTML}{3D7A5A}
+
+\setbeamercolor{normal text}{fg=ink, bg=paper}
+\setbeamercolor{background canvas}{bg=paper}
+\setbeamercolor{frametitle}{fg=paper, bg=ink}
+\setbeamercolor{palette primary}{fg=paper, bg=ink}
+\setbeamercolor{alerted text}{fg=accent}
+\setbeamercolor{progress bar}{fg=accent, bg=ink!25}
+\setbeamercolor{title separator}{fg=accent}
+\setbeamercolor{block title}{fg=ink, bg=ink!9}
+\setbeamercolor{block body}{fg=ink, bg=ink!4}
+\setbeamercolor{block title alerted}{fg=paper, bg=accent}
+\setbeamercolor{block body alerted}{fg=ink, bg=accent!8}
+\setbeamercolor{footnote}{fg=muted}
+\setbeamertemplate{itemize item}{\color{accent}\small$\blacktriangleright$}
+\setbeamertemplate{itemize subitem}{\color{muted}\small--}
+
+\newcommand{\certo}{\textcolor{ok}{\faCheck}}
+\newcommand{\errado}{\textcolor{bad}{\faTimes}}
+\newcommand{\fonte}[1]{\par\vfill{\scriptsize\color{muted}#1}}
+\newcommand{\destaque}[1]{%
+  \begin{center}\colorbox{accent!10}{\parbox{0.92\linewidth}{\centering\strut #1\strut}}\end{center}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}{>{\columncolor{accent!10}\raggedright\arraybackslash}X}
+
+\lstdefinelanguage{Pl}{
+  sensitive=true,
+  morecomment=[l]\%,
+  morestring=[b]',
+  alsoletter={_},
+  emph={Id,Conta,Origem,Destino,Valor,Categoria,Limite,Motivo,Alerta,
+        A,B,C,D,I,L,X,Y,Lista,Atual,Inicio,Visitados,Prox,Resto,Contas,
+        Antes,Achados,PorTransacao,Ciclos,Ids,Regra},
+  literate={:-}{{\textbf{:-}}}2 {?-}{{\textbf{?-}}}2,
+}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  columns=fullflexible, keepspaces=true, upquote=true,
+  showstringspaces=false, extendedchars=true,
+  backgroundcolor=\color{codebg},
+  frame=single, framerule=0pt, framesep=5pt,
+  xleftmargin=5pt, xrightmargin=5pt,
+  aboveskip=3pt, belowskip=3pt,
+  commentstyle=\color{muted}\itshape,
+  stringstyle=\color{str},
+  keywordstyle=\color{ink}\bfseries,
+  emphstyle=\color{accent},
+}
+\lstdefinestyle{pl}{language=Pl}
+\lstdefinestyle{pequeno}{basicstyle=\ttfamily\scriptsize}
+\lstdefinestyle{terminal}{
+  backgroundcolor=\color{term},
+  basicstyle=\ttfamily\scriptsize\color{paper},
+  framesep=7pt,
+}
+
+\title{Programação Lógica com Prolog}
+\subtitle{Validação de transações financeiras: pensar em fatos e regras}
+\author{Grupo 3 · Thiago Martins, Carlos Arthur e Gabriel Marconato Momesso}
+\institute{Linguagens de Programação}
+\date{2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{Roteiro}
+  \begin{enumerate}
+    \setlength{\itemsep}{6pt}
+    \item \textbf{O problema e a aplicação}
+    \item \textbf{O paradigma lógico}: fatos, regras, unificação, backtracking, recursão
+    \item \textbf{Prolog na prática}: como o núcleo de validação foi escrito
+    \item \textbf{Comparação} com Java, Python e SQL
+    \item \textbf{Dificuldades, onde o paradigma brilha e conclusões}
+  \end{enumerate}
+  \vspace{8pt}
+  \destaque{Pergunta que guia o trabalho: \emph{como o paradigma muda a maneira de
+  \textbf{pensar}, \textbf{modelar} e \textbf{implementar} uma solução?}}
+\end{frame}
+
+\section{O problema e a aplicação}
+
+\begin{frame}{O problema: validar um lote de transações}
+  \textbf{Entrada:} transações \texttt{(id, origem, destino, valor, categoria)},
+  limites por categoria e contas de risco.\\
+  \textbf{Saída:} \alert{cada problema encontrado, com o motivo}.
+  \vspace{8pt}
+
+  \footnotesize
+  \begin{tabularx}{\linewidth}{@{}l Y l@{}}
+    \toprule
+    \textbf{Regra} & \textbf{Viola quando} & \textbf{No lote da proposta} \\
+    \midrule
+    Limite da categoria & valor acima do limite da categoria & t1, t3 \\
+    Conta de risco & valor alto para uma conta de risco & t3 \\
+    Autotransferência & origem igual ao destino & t2 \\
+    Valor inválido & valor zero ou negativo & t6 \\
+    Ciclo de dinheiro & o dinheiro sai de uma conta e volta a ela &
+      pedro $\to$ bruno $\to$ carla $\to$ pedro \\
+    \bottomrule
+  \end{tabularx}
+  \normalsize
+  \destaque{As regras chegam como frases: \emph{``é suspeito \textbf{se}\ldots''}.
+  É exatamente assim que se escreve Prolog.}
+\end{frame}
+
+\begin{frame}{A aplicação}
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=ink!45, rounded corners=3pt, fill=white, align=center,
+                  minimum width=3.0cm, minimum height=1.35cm, font=\small},
+      arr/.style={-{Stealth[length=2.2mm]}, ink!55, thick},
+      lbl/.style={font=\scriptsize, text=muted}]
+    \node[box] (tela) at (0,0)
+      {\textbf{Tela}\\[-2pt]{\scriptsize React}\\[-2pt]{\scriptsize\itshape\color{muted} mostra}};
+    \node[box] (bff) at (4.6,0)
+      {\textbf{BFF}\\[-2pt]{\scriptsize TanStack Start}\\[-2pt]{\scriptsize\itshape\color{muted} busca e envia}};
+    \node[box, draw=accent, line width=1.5pt, fill=accent!9] (pl) at (9.8,0)
+      {\textbf{Núcleo}\\[-2pt]{\scriptsize SWI-Prolog}\\[-2pt]{\scriptsize\itshape\color{accent} decide}};
+    \node[box] (db) at (4.6,-2.2)
+      {\textbf{Banco}\\[-2pt]{\scriptsize PostgreSQL}\\[-2pt]{\scriptsize\itshape\color{muted} guarda}};
+    \draw[arr] ([yshift=4pt]tela.east) -- node[above, lbl]{pede} ([yshift=4pt]bff.west);
+    \draw[arr] ([yshift=-4pt]bff.west) -- node[below, lbl]{achados} ([yshift=-4pt]tela.east);
+    \draw[arr] ([yshift=4pt]bff.east) -- node[above, lbl]{POST /validar} ([yshift=4pt]pl.west);
+    \draw[arr] ([yshift=-4pt]pl.west) -- node[below, lbl]{achados (JSON)} ([yshift=-4pt]bff.east);
+    \draw[arr] ([xshift=-4pt]bff.south) -- node[left, lbl]{SQL} ([xshift=-4pt]db.north);
+    \draw[arr] ([xshift=4pt]db.north) -- node[right, lbl]{lotes, limites} ([xshift=4pt]bff.south);
+  \end{tikzpicture}
+
+  \vspace{6pt}
+  \raggedright\small
+  \begin{itemize}
+    \item \textbf{Banco:} só a estrutura dos dados, sem \texttt{CHECK} de regra de negócio
+    \item \textbf{BFF:} consultas SQL e um \texttt{fetch}; nenhuma comparação de valor ou limite
+    \item \textbf{Tela:} destaca apenas os IDs que o núcleo devolve
+  \end{itemize}
+  \destaque{\textbf{Nenhuma linha fora do Prolog decide se algo é válido.}}
+\end{frame}
+
+\section{O paradigma lógico}
+
+\begin{frame}{A pergunta muda}
+  \begin{columns}[T]
+    \begin{column}{0.47\textwidth}
+      \begin{block}{Imperativo / POO}
+        \small\textbf{``Como eu calculo a resposta?''}
+        \begin{itemize}
+          \item passo a passo, em ordem
+          \item laços e variáveis que mudam
+          \item o programador controla a busca
+        \end{itemize}
+      \end{block}
+    \end{column}
+    \begin{column}{0.47\textwidth}
+      \begin{alertblock}{Lógico}
+        \small\textbf{``O que é verdade sobre o problema?''}
+        \begin{itemize}
+          \item fatos e regras
+          \item variáveis não mudam depois de ligadas
+          \item a linguagem procura as respostas
+        \end{itemize}
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+  \vspace{16pt}
+  \begin{center}
+    {\Large \textbf{Algoritmo} = \alert{\textbf{Lógica}} + \textbf{Controle}}\\[3pt]
+    {\small\color{muted} Robert Kowalski, 1979}\\[8pt]
+    {\small nós escrevemos a lógica; o Prolog cuida do controle}
+  \end{center}
+\end{frame}
+
+\begin{frame}{De onde vem e qual Prolog usamos}
+  \centering
+  \begin{tikzpicture}[x=2.45cm]
+    \draw[ink!35, line width=1.2pt] (-0.3,0) -- (5.3,0);
+    \foreach \x/\ano/\txt in {
+        0/1965/{Robinson:\\princípio da\\resolução},
+        1/1972/{Colmerauer\\e Roussel criam\\o Prolog},
+        2/1974/{Kowalski: lógica\\como linguagem\\de programação},
+        3/1995/{padrão\\ISO 13211},
+        4/2011/{IBM Watson\\usa Prolog\\em PLN},
+        5/2022/{50 anos\\de Prolog}} {
+      \fill[accent] (\x,0) circle (3.2pt);
+      \node[above=5pt, font=\bfseries\small] at (\x,0) {\ano};
+      \node[below=6pt, align=center, font=\scriptsize] at (\x,0) {\txt};
+    }
+  \end{tikzpicture}
+  \vspace{12pt}
+
+  \raggedright
+  \begin{block}{Linguagem escolhida: SWI-Prolog}
+    \small
+    \begin{itemize}
+      \item livre, bem documentado e mantido ativamente
+      \item servidor HTTP, JSON e testes (\texttt{plunit}) na própria biblioteca
+      \item família lógica também inclui Datalog, Mercury e Curry
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+\begin{frame}[fragile]{Fatos, regras e consultas}
+  \begin{columns}[T]
+    \begin{column}{0.54\textwidth}
+      \small\textbf{Base de conhecimento}
+\begin{lstlisting}[style=pl]
+% fatos: o que é verdade
+transferencia(pedro, bruno, 500).
+transferencia(bruno, carla, 300).
+transferencia(bruno, davi, 15000).
+conta_risco(davi).
+
+% regras: o que se conclui
+suspeita(Origem, Destino) :-
+    transferencia(Origem, Destino, Valor),
+    conta_risco(Destino),
+    Valor > 10000.
+
+alerta(Conta) :- suspeita(Conta, _).
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+      \small\textbf{Consultas}
+\begin{lstlisting}[style=pl]
+?- suspeita(X, Y).
+X = bruno, Y = davi.
+
+?- alerta(bruno).
+true.
+
+?- alerta(pedro).
+false.
+\end{lstlisting}
+      \vspace{6pt}
+      \footnotesize\textbf{Como ler}\\[2pt]
+      \begin{tabular}{@{}l l@{}}
+        \texttt{:-} & ``se'' \\
+        \texttt{,} & ``e'' \\
+        \textcolor{accent}{\texttt{Maiúscula}} & variável \\
+        \texttt{\_} & ``tanto faz''
+      \end{tabular}
+    \end{column}
+  \end{columns}
+  \fonte{\texttt{alerta/1} usa \texttt{suspeita/2}: regras se constroem sobre regras (inferência).}
+\end{frame}
+
+\begin{frame}[fragile]{Unificação: tornar dois termos iguais}
+  \begin{columns}[T]
+    \begin{column}{0.47\textwidth}
+      \small Funciona nos dois sentidos: não há lado de ``entrada''.
+\begin{lstlisting}[style=pl]
+?- f(X, b) = f(a, Y).
+X = a, Y = b.
+\end{lstlisting}
+      \vspace{8pt}
+      A mesma variável duas vezes obriga os valores a serem iguais:
+\begin{lstlisting}[style=pl]
+autotransferencia(Conta) :-
+    transferencia(Conta, Conta, _).
+
+?- autotransferencia(C).
+C = carla.
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.47\textwidth}
+      \begin{alertblock}{Por que isso é uma vantagem}
+        \small
+        \begin{itemize}
+          \item nenhum \texttt{if}, nenhum \texttt{==}
+          \item a regra \emph{só casa} quando origem e destino são iguais
+          \item a mesma operação serve para comparar, extrair e construir dados
+        \end{itemize}
+      \end{alertblock}
+      \vspace{6pt}
+      {\small É o mecanismo por trás de todo o resto: unificando a pergunta com
+      os fatos e com as cabeças das regras, o Prolog encontra as respostas.}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Backtracking: todas as respostas, sem laço}
+  \begin{columns}[T]
+    \begin{column}{0.67\textwidth}
+      \centering
+      \begin{tikzpicture}[
+          n/.style={font=\ttfamily\scriptsize, fill=codebg, rounded corners=2pt,
+                    inner sep=3pt},
+          e/.style={-{Stealth[length=1.8mm]}, ink!50},
+          back/.style={-{Stealth[length=1.8mm]}, dashed, accent, bend right=28}]
+        \node[n, fill=ink, text=paper] (r) at (3.35,0) {?- suspeita(X, Y)};
+        \node[n] (a) at (0,-1.3)    {X=pedro, Y=bruno};
+        \node[n] (b) at (3.35,-1.3) {X=bruno, Y=carla};
+        \node[n] (c) at (6.7,-1.3)  {X=bruno, Y=davi};
+        \node[n] (a2) at (0,-2.5)    {conta\_risco(bruno) \errado};
+        \node[n] (b2) at (3.35,-2.5) {conta\_risco(carla) \errado};
+        \node[n] (c2) at (6.7,-2.5)  {conta\_risco(davi) \certo};
+        \node[n] (c3) at (6.7,-3.5)  {15000 > 10000 \certo};
+        \node[n, fill=accent!15] (c4) at (6.7,-4.5) {X = bruno, Y = davi};
+        \draw[e] (r) -- (a); \draw[e] (r) -- (b); \draw[e] (r) -- (c);
+        \draw[e] (a) -- (a2); \draw[e] (b) -- (b2); \draw[e] (c) -- (c2);
+        \draw[e] (c2) -- (c3); \draw[e] (c3) -- (c4);
+        \draw[back] (a2.south) to node[below, font=\tiny]{volta} (b2.south);
+        \draw[back] (b2.south) to node[below, font=\tiny]{volta} (c2.south west);
+      \end{tikzpicture}
+    \end{column}
+    \begin{column}{0.31\textwidth}
+      \small
+      Falhou? O Prolog \alert{volta ao último ponto de escolha} e tenta a próxima
+      alternativa.
+      \vspace{8pt}
+
+      \texttt{findall/3} recolhe todas as respostas:
+\begin{lstlisting}[style=pl, style=pequeno]
+?- findall(D,
+     transferencia(bruno, D, _),
+     L).
+L = [carla, davi].
+\end{lstlisting}
+      \vspace{4pt}
+      {\footnotesize\color{muted} A busca em profundidade com retrocesso é o
+      ``laço'' do paradigma, e já vem pronta.}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Recursão no lugar de \texttt{for} e \texttt{while}}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+\begin{lstlisting}[style=pl]
+% caso base: transferência direta
+alcanca(A, B) :-
+    transferencia(A, B, _).
+% caso recursivo: passa por alguém
+alcanca(A, B) :-
+    transferencia(A, X, _),
+    alcanca(X, B).
+\end{lstlisting}
+      \vspace{4pt}
+\begin{lstlisting}[style=pl]
+?- alcanca(pedro, davi).
+true.
+
+?- findall(B, alcanca(pedro, B), L).
+L = [bruno, carla, davi].
+\end{lstlisting}
+      {\scriptsize\color{muted} \texttt{exemplos/05}: pedro $\to$ bruno $\to$ carla $\to$ davi}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \small
+      Lida em voz alta, a regra é a própria definição:
+      \vspace{4pt}
+
+      \emph{``A alcança B se A transfere direto para B, \textbf{ou} se A
+      transfere para algum X que alcança B.''}
+      \vspace{10pt}
+
+      \begin{itemize}
+        \item não existe contador nem condição de parada escrita à mão
+        \item cada cláusula é uma alternativa; o backtracking tenta as duas
+        \item é uma \alert{definição}, não um laço
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Relações, não funções}
+  \begin{columns}[T]
+    \begin{column}{0.50\textwidth}
+\begin{lstlisting}[style=pl, style=pequeno]
+% para quem o Pedro mandou?
+?- transferencia(pedro, X, _).
+X = bruno.
+% quem mandou para a Carla?
+?- transferencia(X, carla, _).
+X = bruno.
+% junte duas listas
+?- append([a], [b], L).
+L = [a, b].
+% que listas, juntas, dão [a, b]?
+?- append(X, Y, [a, b]).
+X = [], Y = [a, b] ;
+X = [a], Y = [b] ;
+X = [a, b], Y = [].
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \small
+      Uma função tem entrada e saída fixas. Uma \alert{relação} responde a
+      qualquer pergunta que se faça sobre ela: o que é dado e o que é
+      procurado decide-se na hora da consulta.
+      \vspace{8pt}
+
+      \begin{block}{No núcleo}
+        \footnotesize
+        \texttt{append/3} ``ao contrário'' gera cada conta de partida da busca
+        de ciclos, junto com as contas que vêm antes dela:\\[3pt]
+        \texttt{append(Antes, [Inicio|\_], Contas)}
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Mundo fechado: \texttt{false} é ``não consegui provar''}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \small
+      \begin{itemize}
+        \item o que não pode ser provado a partir da base é tratado como falso
+        \item \texttt{\textbackslash+ Objetivo} é verdade quando o objetivo
+              \emph{falha} (negação por falha, Clark, 1978)
+      \end{itemize}
+      \vspace{4pt}
+\begin{lstlisting}[style=pl]
+?- conta_risco(carla).
+false.     % não está na lista
+
+% no núcleo: só avança para
+% contas ainda não visitadas
+\+ memberchk(Prox, Visitados)
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.46\textwidth}
+      \begin{alertblock}{Vantagem para regras de negócio}
+        \small
+        Se a conta não está na lista de risco, ela \emph{não é} de risco, sem
+        precisar declarar isso. Categoria sem limite? A regra de limite
+        simplesmente não se aplica.
+      \end{alertblock}
+      \vspace{4pt}
+      \begin{block}{Cuidado}
+        \small
+        Funciona porque a base está completa: o lote traz todos os fatos.
+        E \texttt{false} não diz \emph{por que} falhou.
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\section{Prolog na prática: o núcleo}
+
+\begin{frame}[fragile]{Da frase à cláusula}
+  \begin{columns}[c]
+    \begin{column}{0.36\textwidth}
+      \begin{block}{Enunciado}
+        \small Uma transação \textbf{viola o limite da categoria} \emph{se} o
+        valor dela é maior que o limite definido para a categoria.
+      \end{block}
+    \end{column}
+    \begin{column}{0.04\textwidth}
+      \centering{\Large\color{accent}$\Rightarrow$}
+    \end{column}
+    \begin{column}{0.56\textwidth}
+\begin{lstlisting}[style=pl]
+violacao(Id, limite_categoria, Motivo) :-
+    transacao(Id, _, _, Valor, Categoria),
+    limite_categoria(Categoria, Limite),
+    Valor > Limite,
+    format(atom(Motivo),
+      'R$ ~w passa do limite de R$ ~w ...',
+      [Valor, Limite]).
+\end{lstlisting}
+      {\scriptsize\color{muted}\texttt{nucleo/regras.pl} (formatação do valor em reais omitida)}
+    \end{column}
+  \end{columns}
+  \vspace{12pt}
+  \begin{itemize}\small
+    \item cada linha do corpo é uma condição da frase, ligadas por ``e''
+    \item categoria sem limite? \texttt{limite\_categoria/2} falha e a regra não se
+          aplica: nada de \texttt{if}, \texttt{null} ou valor padrão
+    \item o limite não está no código: vem do lote, que vem do banco
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{Cada regra, uma cláusula independente}
+  \begin{columns}[T]
+    \begin{column}{0.56\textwidth}
+\begin{lstlisting}[style=pl]
+violacao(Id, conta_risco, Motivo) :-
+    transacao(Id, _, Destino, Valor, _),
+    conta_risco(Destino),
+    alerta_risco(Alerta),
+    Valor > Alerta, ...
+
+% unificação: Conta aparece duas vezes
+violacao(Id, autotransferencia, Motivo) :-
+    transacao(Id, Conta, Conta, _, _), ...
+
+violacao(Id, valor_invalido, Motivo) :-
+    transacao(Id, _, _, Valor, _),
+    Valor =< 0, ...
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.40\textwidth}
+      \small
+      \begin{itemize}
+        \item nenhuma regra chama outra nem depende da ordem de execução da
+              outra
+        \item uma transação pode quebrar várias regras: t3 aparece em
+              \emph{limite} e em \emph{conta de risco}, naturalmente
+        \item a ordem das cláusulas define a ordem dos achados de uma mesma
+              transação
+      \end{itemize}
+      \vspace{4pt}
+      \destaque{\footnotesize 4 regras por transação = 4 cláusulas de
+      \texttt{violacao/3}}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{O diagnóstico inteiro}
+  \begin{columns}[T]
+    \begin{column}{0.63\textwidth}
+\begin{lstlisting}[style=pl, style=pequeno]
+diagnostico(Achados) :-
+    findall(achado(transacao(Id), Regra, Motivo),
+            ( transacao(Id, _, _, _, _),
+              violacao(Id, Regra, Motivo) ),
+            PorTransacao),
+    findall(achado(ciclo(Contas, Ids), ciclo, Motivo),
+            ( ciclo(Contas),
+              transacoes_do_ciclo(Contas, Ids),
+              motivo_ciclo(Contas, Motivo) ),
+            Ciclos),
+    append(PorTransacao, Ciclos, Achados).
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.33\textwidth}
+      \small
+      \begin{tabular}{@{}l l@{}}
+        \errado & laço escrito à mão \\[3pt]
+        \errado & lista acumuladora \\[3pt]
+        \errado & ordenação \\[3pt]
+        \certo & backtracking percorre\\ & transações $\times$ regras \\[3pt]
+        \certo & \texttt{findall/3} junta tudo \\[3pt]
+        \certo & ordem = ordem do lote,\\ & depois a das cláusulas
+      \end{tabular}
+    \end{column}
+  \end{columns}
+  \vspace{8pt}
+  \destaque{\small O ``validador'' é uma \emph{pergunta}: quais \texttt{(Id, Regra,
+  Motivo)} tornam \texttt{violacao/3} verdade?}
+\end{frame}
+
+\begin{frame}[fragile]{Ciclos de dinheiro: busca em profundidade em duas cláusulas}
+  \begin{columns}[T]
+    \begin{column}{0.60\textwidth}
+\begin{lstlisting}[style=pl, style=pequeno]
+% chegou de volta ao início: é um ciclo
+caminho(Atual, Inicio, _, [Inicio]) :-
+    aresta(Atual, Inicio).
+% ou segue para uma conta ainda não visitada
+caminho(Atual, Inicio, Visitados, [Prox|Resto]) :-
+    aresta(Atual, Prox),
+    \+ memberchk(Prox, Visitados),
+    caminho(Prox, Inicio, [Prox|Visitados], Resto).
+
+% contas antes de Inicio no lote já contam como
+% visitadas: cada ciclo é encontrado uma vez só
+ciclo([Inicio|Resto]) :-
+    contas_do_lote(Contas),
+    append(Antes, [Inicio|_], Contas),
+    caminho(Inicio, Inicio, [Inicio|Antes], Resto).
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.37\textwidth}
+      \centering
+      \begin{tikzpicture}[scale=0.85, transform shape,
+          c/.style={circle, draw=ink!60, fill=white, font=\scriptsize,
+                    minimum size=1.05cm, inner sep=0pt},
+          e/.style={-{Stealth[length=2mm]}, thick},
+          lbl/.style={font=\tiny, fill=paper, inner sep=1pt}]
+        \node[c] (p) at (0,0) {pedro};
+        \node[c] (b) at (2.6,0) {bruno};
+        \node[c] (c) at (1.3,-2.0) {carla};
+        \node[c, diamond, minimum size=1.1cm, draw=bad, font=\tiny, align=center]
+          (f) at (4.0,-1.4) {conta\\fantasma};
+        \node[c] (d) at (2.9,-3.0) {davi};
+        \draw[e, accent] (p) -- node[lbl, above]{t1} (b);
+        \draw[e, accent] (b) -- node[lbl, right]{t4} (c);
+        \draw[e, accent] (c) -- node[lbl, left]{t5} (p);
+        \draw[e, ink!45] (b) -- node[lbl, above right]{t3} (f);
+        \draw[e, ink!30, dotted] (c) -- node[lbl, below left]{t6: R\$ 0} (d);
+        \draw[e, ink!30, dotted] (b) to[out=60, in=120, looseness=6]
+          node[lbl, above]{t2} (b);
+      \end{tikzpicture}
+
+      \footnotesize\raggedright
+      \begin{itemize}
+        \item a pilha da busca é o backtracking: ao falhar, o caminho se desfaz
+              sozinho
+        \item \texttt{Visitados} garante que a busca termina
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Saída real do núcleo}
+\begin{lstlisting}[style=terminal]
+$ swipl nucleo/regras.pl nucleo/lotes/seed.pl
+?- mostrar_diagnostico.
+t1 [limite_categoria] R$ 60.000 passa do limite de R$ 50.000 da categoria suprimentos
+t2 [autotransferencia] origem e destino são a mesma conta (bruno)
+t3 [limite_categoria] R$ 15.000 passa do limite de R$ 10.000 da categoria servicos
+t3 [conta_risco] valor alto (R$ 15.000) enviado para a conta de risco conta_fantasma
+t6 [valor_invalido] valor zerado ou negativo (R$ 0)
+t1,t4,t5 [ciclo] o dinheiro sai de pedro e volta para pedro (pedro → bruno → carla → pedro)
+\end{lstlisting}
+  \vspace{6pt}
+  \begin{columns}[T]
+    \begin{column}{0.55\textwidth}
+      \begin{alertblock}{O núcleo achou o que nós deixamos passar}
+        \small Na proposta, escrevemos à mão que t3 quebrava uma regra. Quebra
+        duas: limite \textbf{e} conta de risco.
+      \end{alertblock}
+    \end{column}
+    \begin{column}{0.41\textwidth}
+      \footnotesize
+      \begin{itemize}
+        \item a tela mostra exatamente isso: mesmos fatos, mesmo \texttt{diagnostico/1}
+        \item 50 testes \texttt{plunit} passam em 0,04~s
+        \item o núcleo roda sozinho, sem a web
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Uma regra nova é uma cláusula a mais}
+  \begin{columns}[T]
+    \begin{column}{0.50\textwidth}
+\begin{lstlisting}[style=pl]
+violacao(Id, nova_regra, Motivo) :-
+    transacao(Id, ...),
+    condicao_da_regra,
+    format(atom(Motivo), ...).
+\end{lstlisting}
+      \vspace{6pt}
+      \small
+      \begin{tabular}{@{}l l@{}}
+        \toprule
+        \textbf{Parte} & \textbf{O que muda} \\
+        \midrule
+        \texttt{regras.pl} & +1 cláusula \\
+        \texttt{diagnostico/1} & nada \\
+        servidor HTTP / JSON & nada \\
+        banco & nada \\
+        BFF e tela & nome da regra \\
+        \bottomrule
+      \end{tabular}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \begin{block}{Configuração também é fato}
+        \small
+        Limite de \emph{serviços} de R\$ 10.000 para R\$ 100: o lote é remontado
+        do banco como fatos e o diagnóstico muda.\\[4pt]
+        \textbf{Nenhuma linha de código nova.}
+      \end{block}
+      \vspace{6pt}
+      {\small O \texttt{findall/3} do diagnóstico pergunta por \emph{qualquer}
+      cláusula de \texttt{violacao/3}; uma regra nova entra nele sozinha.}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\section{Comparação com outras linguagens}
+
+\begin{frame}[fragile]{A mesma regra em Java (POO)}
+  \begin{columns}[T]
+    \begin{column}{0.55\textwidth}
+\begin{lstlisting}[language=Java, style=pequeno]
+interface Regra {
+  Optional<Achado> verificar(Transacao t);
+}
+
+class Autotransferencia implements Regra {
+  public Optional<Achado> verificar(Transacao t) {
+    if (t.origem().equals(t.destino()))
+      return Optional.of(
+          new Achado(t.id(), "autotransferencia"));
+    return Optional.empty();
+  }
+}
+
+// o validador percorre tudo à mão
+List<Achado> achados = new ArrayList<>();
+for (Transacao t : lote)
+  for (Regra r : regras)
+    r.verificar(t).ifPresent(achados::add);
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+\begin{lstlisting}[style=pl, style=pequeno]
+violacao(Id, autotransferencia, _) :-
+    transacao(Id, Conta, Conta, _, _).
+
+% o "validador"
+?- findall(Id-Regra,
+           violacao(Id, Regra, _),
+           Achados).
+\end{lstlisting}
+      \vspace{4pt}
+      \footnotesize
+      \begin{itemize}
+        \item \textbf{POO:} a regra vira classe; laço, acumulador e comparação
+              são escritos à mão
+        \item \textbf{Prolog:} a regra vira cláusula; a comparação é a
+              unificação e o laço é o backtracking
+        \item \textbf{A favor da POO:} tipos estáticos, encapsulamento e
+              isolamento natural (um objeto por lote)
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Busca de ciclos em Python (imperativo)}
+  \begin{columns}[T]
+    \begin{column}{0.55\textwidth}
+\begin{lstlisting}[language=Python, style=pequeno]
+def ciclos(arestas, contas):
+  achados = []
+  for i, inicio in enumerate(contas):
+    pilha = [(inicio, [inicio])]
+    while pilha:
+      atual, cam = pilha.pop()
+      for prox in arestas.get(atual, []):
+        if prox == inicio:
+          achados.append(cam + [inicio])
+        elif prox not in cam + contas[:i]:
+          pilha.append((prox, cam + [prox]))
+  return achados
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+\begin{lstlisting}[style=pl, style=pequeno]
+caminho(Atual, Inicio, _, [Inicio]) :-
+    aresta(Atual, Inicio).
+caminho(Atual, Inicio, Visitados,
+        [Prox|Resto]) :-
+    aresta(Atual, Prox),
+    \+ memberchk(Prox, Visitados),
+    caminho(Prox, Inicio,
+            [Prox|Visitados], Resto).
+\end{lstlisting}
+      \vspace{6pt}
+      \footnotesize
+      \begin{itemize}
+        \item \textbf{Python:} pilha, cópia do caminho, laço externo e lista de
+              resultados, tudo controlado à mão
+        \item \textbf{Prolog:} só a definição de ciclo; a pilha e o
+              ``desfazer'' vêm do backtracking
+        \item não é só tamanho: é \alert{quem} cuida da busca
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{SQL: o primo declarativo}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+\begin{lstlisting}[language=SQL, style=pequeno, morekeywords={recursive}]
+with recursive alcanca(origem, destino) as (
+    select origem, destino from transacoes
+  union
+    select a.origem, t.destino
+    from alcanca a
+    join transacoes t on t.origem = a.destino
+)
+select destino from alcanca
+where origem = 'pedro';
+\end{lstlisting}
+      \vspace{4pt}
+\begin{lstlisting}[style=pl, style=pequeno]
+alcanca(A, B) :- transferencia(A, B, _).
+alcanca(A, B) :- transferencia(A, X, _),
+                 alcanca(X, B).
+
+?- alcanca(pedro, B).
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \small
+      \begin{itemize}
+        \item SQL também diz \emph{o quê}, não \emph{como}, e também vem da
+              lógica (cálculo relacional); Datalog liga os dois mundos
+        \item em SQL a recursão é uma construção especial; em Prolog é o jeito
+              normal de escrever, com listas e termos como
+              \texttt{ciclo([pedro, \ldots])}
+        \item \textbf{A favor do SQL:} volume, persistência e concorrência.
+              Por isso os dados moram no Postgres
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Comparação geral}
+  \footnotesize
+  \renewcommand{\arraystretch}{1.3}
+  \begin{tabularx}{\linewidth}{@{}>{\bfseries}l P Y Y@{}}
+    \toprule
+    & \textbf{Prolog} & \textbf{Java (POO)} & \textbf{SQL} \\
+    \midrule
+    Você descreve & fatos e regras & objetos e métodos & consultas sobre tabelas \\
+    Repetição & recursão e backtracking & laços & \texttt{WITH RECURSIVE} \\
+    Busca de soluções & nativa (resolução) & escrita à mão & só sobre os dados \\
+    Sentido & relação: vários sentidos & entrada $\to$ saída & tabelas $\to$ tabela \\
+    Tipos & dinâmicos & estáticos & esquema das tabelas \\
+    Brilha em & regras, grafos, busca & sistemas grandes com estado & volume e persistência \\
+    \bottomrule
+  \end{tabularx}
+  \normalsize
+  \destaque{\small Nenhuma ganha em tudo: Prolog ganha quando o problema \emph{é feito de regras}.}
+\end{frame}
+
+\section{Dificuldades, aplicações e conclusões}
+
+\begin{frame}{Dificuldades}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \small
+      \textbf{\color{accent}Fatos são globais}\\
+      isolar cada lote exigiu \texttt{assert}/\texttt{retract}, mutex e
+      \texttt{setup\_call\_cleanup}: um lote por vez
+      \vspace{7pt}
+
+      \textbf{\color{accent}Terminação é responsabilidade sua}\\
+      \texttt{alcanca/2} em grafo com ciclo não para; foi preciso a lista de
+      visitadas
+      \vspace{7pt}
+
+      \textbf{\color{accent}A busca pode explodir}\\
+      listar todos os ciclos é exponencial: 40 contas e 100 transações levavam
+      20~s; com poda, 2~s (cerca de 14.700 ciclos)
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \small
+      \textbf{\color{accent}Sem tipos}\\
+      erro de digitação ou biblioteca não carregada vira \emph{``Unknown
+      procedure''} só ao rodar os testes
+      \vspace{7pt}
+
+      \textbf{\color{accent}\texttt{false} não explica}\\
+      a resposta não diz onde a prova falhou; depurar exige \texttt{trace}
+      \vspace{7pt}
+
+      \textbf{\color{accent}Nem tudo é lógica}\\
+      ler e conferir o JSON de entrada ficou procedural, campo a campo
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Tabling: quando a linguagem devolve o controle}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \small\textbf{Grafo com ciclo, sem tabling}
+\begin{lstlisting}[style=pl]
+transferencia(pedro, bruno, 500).
+transferencia(bruno, carla, 300).
+transferencia(carla, pedro, 200).
+
+?- findall(B, alcanca(pedro, B), L).
+% não termina: pedro, bruno, carla,
+% pedro, bruno... para sempre
+\end{lstlisting}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \small\textbf{Com uma diretiva a mais}
+\begin{lstlisting}[style=pl]
+:- table alcanca/2.
+
+?- findall(B, alcanca(pedro, B), L).
+L = [pedro, carla, bruno].
+\end{lstlisting}
+      \vspace{4pt}
+      \footnotesize
+      O SWI-Prolog memoriza as respostas já encontradas (resolução SLG): ciclos e
+      recursão à esquerda passam a terminar, como o \texttt{UNION} do SQL.
+    \end{column}
+  \end{columns}
+  \vspace{8pt}
+  \begin{block}{Por que o núcleo não usa}
+    \small O diagnóstico precisa do \emph{caminho} de cada ciclo, não só de quem
+    alcança quem; por isso a busca guarda as contas visitadas.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Onde o paradigma brilha e onde não}
+  \begin{columns}[T]
+    \begin{column}{0.50\textwidth}
+      \begin{alertblock}{Brilha}
+        \small
+        \begin{itemize}
+          \item regras de negócio e legislação\\
+                {\scriptsize\color{muted} lei britânica de nacionalidade como programa (1986)}
+          \item sistemas especialistas e diagnóstico
+          \item grafos: caminhos, dependências, ciclos
+          \item planejamento e escalonamento
+          \item linguagem natural\\
+                {\scriptsize\color{muted} análise de perguntas no IBM Watson (2011)}
+        \end{itemize}
+      \end{alertblock}
+    \end{column}
+    \begin{column}{0.44\textwidth}
+      \begin{block}{Não é a melhor escolha}
+        \small
+        \begin{itemize}
+          \item interfaces gráficas
+          \item cálculo numérico pesado
+          \item programas com muito estado mutável
+          \item grande volume de dados persistidos
+        \end{itemize}
+      \end{block}
+    \end{column}
+  \end{columns}
+  \vspace{8pt}
+  \destaque{\small No nosso sistema: \textbf{React} na tela, \textbf{Postgres} nos
+  dados, \textbf{Prolog} nas regras.}
+\end{frame}
+
+\begin{frame}{Respondendo à pergunta do trabalho}
+  \centering
+  {\small\emph{Como o paradigma influencia a maneira de pensar, modelar e
+  implementar uma solução?}}
+  \vspace{10pt}
+
+  \begin{columns}[T]
+    \begin{column}{0.31\textwidth}
+      \begin{alertblock}{Pensar}
+        \small De ``como calcular?'' para \textbf{``o que é verdade?''}. O
+        enunciado do problema já é quase a especificação.
+      \end{alertblock}
+    \end{column}
+    \begin{column}{0.31\textwidth}
+      \begin{alertblock}{Modelar}
+        \small \textbf{Fatos e relações} em vez de objetos:
+        \texttt{transacao/5}, \texttt{aresta/2}, \texttt{ciclo/1}. Os dados já
+        são lógica.
+      \end{alertblock}
+    \end{column}
+    \begin{column}{0.31\textwidth}
+      \begin{alertblock}{Implementar}
+        \small \textbf{Cláusulas + busca automática}. O controle volta onde
+        importa: terminação e poda.
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Conclusão}
+  \begin{itemize}
+    \setlength{\itemsep}{7pt}
+    \item As regras ficaram \textbf{parecidas com o enunciado} e independentes entre si
+    \item \textbf{Unificação e backtracking} substituíram comparações, laços e acumuladores
+    \item A busca de ciclos, que em Java ou Python seria uma DFS escrita à mão,
+          virou \textbf{duas cláusulas}
+    \item O núcleo encontrou um achado que a especificação feita à mão deixou passar
+    \item O preço: estado global, terminação e desempenho continuam sendo
+          \textbf{responsabilidade nossa}
+  \end{itemize}
+  \vspace{10pt}
+  \destaque{Prolog não substitui as outras linguagens: é a ferramenta certa para
+  a parte do problema que é \textbf{feita de regras}.}
+\end{frame}
+
+\begin{frame}[standout]
+  Obrigado!\\[10pt]
+  {\normalsize\ttfamily ?- pergunta(X).}\\[18pt]
+  {\scriptsize\normalfont github.com/ThiaagoMP/trabalho-final-linguagens}
+\end{frame}
+
+\appendix
+
+\begin{frame}{Referências}
+  \scriptsize
+  \begin{itemize}
+    \setlength{\itemsep}{2pt}
+    \item CLARK, K. L. Negation as failure. In: \emph{Logic and Data Bases}. Plenum, 1978.
+    \item COLMERAUER, A.; ROUSSEL, P. The birth of Prolog. \emph{ACM SIGPLAN Notices}, 28(3), 1993.
+    \item KÖRNER, P. et al. Fifty years of Prolog and beyond. \emph{TPLP}, 22(6), 2022.
+    \item KOWALSKI, R. Predicate logic as programming language. \emph{IFIP Congress}, 1974.
+    \item KOWALSKI, R. Algorithm = logic + control. \emph{Communications of the ACM}, 22(7), 1979.
+    \item LALLY, A.; FODOR, P. Natural language processing with Prolog in the IBM Watson system. \emph{ALP Newsletter}, 2011.
+    \item ROBINSON, J. A. A machine-oriented logic based on the resolution principle. \emph{Journal of the ACM}, 12(1), 1965.
+    \item SERGOT, M. J. et al. The British Nationality Act as a logic program. \emph{Communications of the ACM}, 29(5), 1986.
+    \item WIELEMAKER, J. et al. SWI-Prolog. \emph{TPLP}, 12(1--2), 2012.
+    \item SWI-Prolog Reference Manual, seção \emph{Tabled execution}. \url{https://www.swi-prolog.org}
+  \end{itemize}
+\end{frame}
+
+\end{document}
